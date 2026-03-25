@@ -1,3 +1,4 @@
+use crate::order::Order;
 use anyhow::Context;
 use async_stream::try_stream;
 use axum::{
@@ -7,7 +8,7 @@ use axum::{
     http::Response,
     routing::get,
 };
-use csv_async::{AsyncWriterBuilder, Terminator};
+use csv_async::AsyncWriterBuilder;
 use futures_util::{Stream, StreamExt, TryStreamExt};
 use http_json_stream::{JsonPart, JsonStream};
 use reqwest::{Client, StatusCode, header};
@@ -19,8 +20,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 use tracing::{Instrument, trace_span};
 use url::Url;
-
-use crate::order::Order;
 
 const DEFAULT_BUF_SIZE: usize = 1;
 const DEFAULT_LIMIT: usize = 1 << 0;
