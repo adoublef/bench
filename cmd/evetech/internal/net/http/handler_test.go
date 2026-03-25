@@ -90,7 +90,7 @@ func apiClient(t testing.TB, regions, max, orders int) (httpC *http.Client, base
 	mux := http.NewServeMux()
 
 	{ // GET /v1/universe/regions
-		const start = 10000000
+		const start = 10000
 		var rr = make([]int, regions)
 		for i := range regions {
 			rr[i] = start + (i + 1)
