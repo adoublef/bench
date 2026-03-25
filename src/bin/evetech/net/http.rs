@@ -5,7 +5,7 @@ use axum::{
     Router,
     body::{Body, Bytes},
     extract::{Query, State},
-    http::Response,
+    response::{IntoResponse, Response},
     routing::get,
 };
 use csv_async::AsyncWriterBuilder;
@@ -181,10 +181,10 @@ async fn handle_csv(
         base_url,
         has_header,
     }): Query<CsvParams>,
-) -> Response<Body> {
+) -> Result<Response, AppError> {
     let has_header = has_header.unwrap_or_default();
     let stream = csv_stream(client, base_url, has_header).await;
-    Response::builder()
+    let response = Response::builder()
         .header(header::CONTENT_TYPE, mime::TEXT_CSV.essence_str())
         .header(
             header::CONTENT_DISPOSITION,
@@ -192,7 +192,29 @@ async fn handle_csv(
         )
         .status(StatusCode::OK)
         .body(Body::from_stream(stream))
-        .unwrap()
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    Ok(response)
+}
+
+struct AppError(anyhow::Error);
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Something went wrong: {}", self.0),
+        )
+            .into_response()
+    }
+}
+
+impl<E> From<E> for AppError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        Self(err.into())
+    }
 }
 
 #[cfg(test)]
@@ -331,8 +353,8 @@ mod test {
 
         // spawn new process, how would i close it?
         spawn(async move {
-            if let Err(err) = axum::serve(listener, app(api_client)).await {
-                eprintln!("server error: {err}");
+            if let Err(e) = axum::serve(listener, app(api_client)).await {
+                eprintln!("server error: {e}");
             }
         });
 
