@@ -148,7 +148,6 @@ async fn csv_stream(
             let mut wri = AsyncWriterBuilder::new()
                 .has_headers(has_header) // no header
                 .buffer_capacity(4 << 10)
-                .terminator(Terminator::CRLF)
                 .create_serializer(tx);
             while let Some(order) = orders.recv().await {
                 wri.serialize(&order).await?;
@@ -259,7 +258,6 @@ mod test {
             // or the query, so that we can use that in our reader
             let mut rdr = AsyncReaderBuilder::new()
                 .has_headers(has_header)
-                .terminator(Terminator::CRLF)
                 .buffer_capacity(4 << 10) // not my concern?
                 .create_reader(StreamReader::new(
                     response.bytes_stream().map_err(io::Error::other),
