@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,15 +18,6 @@ import (
 
 const defaultBufSize = 1
 const defaultLimit = 1 << 0
-
-type (
-	Server = http.Server
-	Client = http.Client
-)
-
-func IsServerClosed(err error) bool {
-	return errors.Is(err, http.ErrServerClosed)
-}
 
 func Handler(httpC *http.Client) http.Handler {
 	return handleCSV(httpC)
