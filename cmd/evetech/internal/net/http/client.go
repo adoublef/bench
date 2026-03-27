@@ -28,7 +28,7 @@ func (c *Client) Regions(ctx context.Context, u *url.URL) iter.Seq2[uint64, erro
 			return
 		}
 		for id, err := range jsonstream.Decode[uint64](res.Body) {
-			if !yield(id, err) {
+			if !yield(id, cmp.Or(err, ctx.Err())) {
 				return
 			}
 		}
@@ -63,7 +63,7 @@ func (c *Client) Orders(ctx context.Context, u *url.URL, region, page uint64) it
 			return
 		}
 		for o, err := range jsonstream.Decode[order.Order](res.Body) {
-			if !yield(o, err) {
+			if !yield(o, cmp.Or(err, ctx.Err())) {
 				return
 			}
 		}
