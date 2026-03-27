@@ -14,10 +14,6 @@ use reqwest::{StatusCode, header};
 use serde::Deserialize;
 use url::Url;
 
-// trait alias (not to confuse with unstable feature with the same name)
-// trait CsvByteStreamHandle: CsvByteStream + Clone + Send + Sync + 'static {}
-// impl<T: ?Sized + CsvByteStream + Clone + Send + Sync + 'static> CsvByteStreamHandle for T {}
-
 #[derive(Debug, Clone)]
 struct AppState<T: Client>(Handler<T>); // Handler now needs to be generic
 

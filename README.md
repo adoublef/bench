@@ -2,6 +2,14 @@
 
 ## rust
 
+### trait aliases
+
+```rs
+trait CsvByteStreamHandle: CsvByteStream + Clone + Send + Sync + 'static {}
+impl<T: ?Sized + CsvByteStream + Clone + Send + Sync + 'static> CsvByteStreamHandle for T {}
+```
+> not to confuse with unstable feature with the same name
+
 ---
 
 - [Project layout](https://doc.rust-lang.org/cargo/guide/project-layout.html)
