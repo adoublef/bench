@@ -1,171 +1,83 @@
-use crate::order::Order;
-use anyhow::Context;
-use async_stream::try_stream;
+use crate::order::{Client, Handler, Order};
+use anyhow::Context as _;
+use async_trait::async_trait;
 use axum::{
     Router,
-    body::{Body, Bytes},
+    body::Body,
     extract::{Query, State},
     response::{IntoResponse, Response},
     routing::get,
 };
-use csv_async::AsyncWriterBuilder;
-use futures_util::{Stream, StreamExt, TryStreamExt};
+use futures_util::{Stream, TryStreamExt as _};
 use http_json_stream::{JsonPart, JsonStream};
-use reqwest::{Client, StatusCode, header};
+use reqwest::{StatusCode, header};
 use serde::Deserialize;
-use std::io;
-use std::marker::Send;
-use tokio::{io::duplex, sync::mpsc, task::JoinSet};
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::io::ReaderStream;
-use tracing::{Instrument, trace_span};
 use url::Url;
 
-const DEFAULT_BUF_SIZE: usize = 1;
-const DEFAULT_LIMIT: usize = 1 << 0;
-
-pub fn app(client: Client) -> Router {
-    Router::new()
-        .route("/", get(handle_csv))
-        .with_state(AppState(client))
-}
+// trait alias (not to confuse with unstable feature with the same name)
+// trait CsvByteStreamHandle: CsvByteStream + Clone + Send + Sync + 'static {}
+// impl<T: ?Sized + CsvByteStream + Clone + Send + Sync + 'static> CsvByteStreamHandle for T {}
 
 #[derive(Debug, Clone)]
-struct AppState(Client);
+struct AppState<T: Client + Clone + Send + Sync + 'static>(Handler<T>); // Handler now needs to be generic
 
-async fn csv_stream(
-    client: Client,
-    base_url: Url,
-    has_header: bool, // better to be a config map
-) -> impl Stream<Item = Result<Bytes, io::Error>> + Send + 'static {
-    let mut set = JoinSet::new();
+fn app<T: Client + Clone + Send + Sync + 'static>(handler: Handler<T>) -> Router {
+    Router::new()
+        .route("/", get(handle_csv))
+        .with_state(AppState(handler))
+}
 
-    let (tx, regions) = mpsc::channel(DEFAULT_BUF_SIZE);
-    set.spawn({
-        let client = client.clone();
-        let base_url = base_url.clone();
-        async move {
-            let response = client
-                .get(base_url.join("/v1/universe/regions")?)
-                .send()
-                .await?
-                .error_for_status()?;
-            // check the content-type & and content-length
-            let mut stream = JsonStream::<_, _, u32>::process(response, JsonPart::level(1));
+#[derive(Debug, Clone, Default)]
+pub struct AppClient(reqwest::Client);
 
-            while let Some(id) = stream
-                .try_next()
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?
-            {
-                tx.send(id).await?;
-            }
-            Ok::<_, anyhow::Error>(())
-        }
-        .instrument(trace_span!("regions"))
-    });
+#[async_trait]
+impl Client for AppClient {
+    async fn regions(
+        &self,
+        url: Url,
+    ) -> Result<impl Stream<Item = Result<u32, anyhow::Error>> + Send + 'static, anyhow::Error>
+    {
+        let response = self
+            .0
+            .get(url.join("/v1/universe/regions")?)
+            .send()
+            .await?
+            .error_for_status()?;
+        let stream = JsonStream::<_, _, u32>::process(response, JsonPart::level(1))
+            .map_err(|e| anyhow::anyhow!(e.to_string()));
+        Ok(stream) // map the error here
+    }
 
-    let (tx, queries) = mpsc::channel(DEFAULT_BUF_SIZE);
-    set.spawn({
-        let client = client.clone();
-        let base_url = base_url.clone();
-        async move {
-            ReceiverStream::new(regions)
-                .map(Ok::<_, anyhow::Error>)
-                .try_for_each_concurrent(DEFAULT_LIMIT, |region| {
-                    let tx = tx.clone();
-                    let client = client.clone();
-                    let base_url = base_url.clone();
-                    async move {
-                        let last = client
-                            .head(base_url.join(&format!("/v1/markets/{region}/orders"))?)
-                            .send()
-                            .await?
-                            .error_for_status()?
-                            .headers()
-                            .get("x-pages")
-                            .context("Missing x-pages header")?
-                            .to_str()?
-                            .parse::<u32>()?;
+    async fn max_pages(&self, url: Url, region: u32) -> Result<u32, anyhow::Error> {
+        Ok(self
+            .0
+            .head(url.join(&format!("/v1/markets/{region}/orders"))?)
+            .send()
+            .await?
+            .error_for_status()?
+            .headers()
+            .get("x-pages")
+            .context("Missing x-pages header")?
+            .to_str()?
+            .parse::<u32>()?)
+    }
 
-                        for page in 1..=last {
-                            tx.send((region, page)).await?;
-                        }
-                        Ok::<_, anyhow::Error>(())
-                    }
-                    .instrument(trace_span!("pages"))
-                })
-                .await?;
-            Ok::<_, anyhow::Error>(())
-        }
-    });
-
-    let (tx, mut orders) = mpsc::channel(DEFAULT_BUF_SIZE);
-    set.spawn({
-        let client = client.clone();
-        let base_url = base_url.clone();
-        async move {
-            ReceiverStream::new(queries)
-                .map(Ok::<_, anyhow::Error>)
-                .try_for_each_concurrent(DEFAULT_LIMIT, |(region, page)| {
-                    let tx = tx.clone();
-                    let client = client.clone();
-                    let base_url = base_url.clone();
-                    async move {
-                        let response = client
-                            .get(
-                                base_url
-                                    .join(&format!("/v1/markets/{region}/orders?page={page}"))?,
-                            )
-                            .send()
-                            .await?
-                            .error_for_status()?;
-                        // support ndjson &/or jsonl
-                        // check the content-type & and content-length
-                        let mut stream =
-                            JsonStream::<_, _, Order>::process(response, JsonPart::level(1));
-
-                        while let Some(order) = stream
-                            .try_next()
-                            .await
-                            .map_err(|e| anyhow::anyhow!(e.to_string()))?
-                        {
-                            tx.send(order).await?;
-                        }
-                        Ok::<_, anyhow::Error>(())
-                    }
-                    .instrument(trace_span!("orders"))
-                })
-                .await?;
-            Ok::<_, anyhow::Error>(())
-        }
-    });
-
-    let (rx, tx) = duplex(4 << 10);
-    set.spawn({
-        async move {
-            let mut wri = AsyncWriterBuilder::new()
-                .has_headers(has_header) // no header
-                .buffer_capacity(4 << 10)
-                .create_serializer(tx);
-            while let Some(order) = orders.recv().await {
-                wri.serialize(&order).await?;
-            }
-            wri.flush().await?;
-            Ok::<_, anyhow::Error>(())
-        }
-        .instrument(trace_span!("csv"))
-    });
-
-    let mut stream = ReaderStream::new(rx);
-    try_stream! {
-        while let Some(msg) = stream.next().await {
-            let msg = msg?; // Result<Bytes, Error>
-            yield msg
-        }
-        for res in set.join_all().await {
-            res.map_err(io::Error::other)?;
-        }
+    async fn orders(
+        &self,
+        url: Url,
+        region: u32,
+        page: u32,
+    ) -> Result<impl Stream<Item = Result<Order, anyhow::Error>> + Send + 'static, anyhow::Error>
+    {
+        let response = self
+            .0
+            .get(url.join(&format!("/v1/markets/{region}/orders?page={page}"))?)
+            .send()
+            .await?
+            .error_for_status()?;
+        let stream = JsonStream::<_, _, Order>::process(response, JsonPart::level(1))
+            .map_err(|e| anyhow::anyhow!(e.to_string()));
+        Ok(stream) // map the error here
     }
 }
 
@@ -175,15 +87,15 @@ struct CsvParams {
     has_header: Option<bool>,
 }
 
-async fn handle_csv(
-    State(AppState(client)): State<AppState>,
+async fn handle_csv<T: Client + Clone + Send + Sync + 'static>(
+    State(AppState(handler)): State<AppState<T>>,
     Query(CsvParams {
         base_url,
         has_header,
     }): Query<CsvParams>,
 ) -> Result<Response, AppError> {
     let has_header = has_header.unwrap_or_default();
-    let stream = csv_stream(client, base_url, has_header).await;
+    let stream = handler.order_stream(base_url, has_header).await;
     let response = Response::builder()
         .header(header::CONTENT_TYPE, mime::TEXT_CSV.essence_str())
         .header(
@@ -220,6 +132,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::order::Order;
     use anyhow::Context;
     use axum::{
         Json, Router,
@@ -306,7 +219,7 @@ mod test {
         let listener = TcpListener::bind("0.0.0.0:0").await?;
         let addr = listener.local_addr()?;
 
-        let client = Client::new();
+        let client = Client::builder().build()?; // modify the client
         let url = Url::parse(&format!("http://{addr}"))?;
 
         // a vector of ids (stargeting at 10000)
@@ -351,9 +264,11 @@ mod test {
         let client = Client::new();
         let url = Url::parse(&format!("http://{addr}"))?;
 
+        let handler = Handler::new(AppClient(api_client));
+
         // spawn new process, how would i close it?
         spawn(async move {
-            if let Err(e) = axum::serve(listener, app(api_client)).await {
+            if let Err(e) = axum::serve(listener, app(handler)).await {
                 eprintln!("server error: {e}");
             }
         });
