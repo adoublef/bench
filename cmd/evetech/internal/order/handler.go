@@ -26,6 +26,7 @@ type Handler struct{ Client }
 
 func (h *Handler) OrdersReader(ctx context.Context, u *url.URL, hasHeader bool) io.ReadCloser {
 	g, ctx := errgroup.WithContext(ctx)
+
 	regions := make(chan uint64, defaultBufSize)
 	g.Go(func() error {
 		ctx, task := trace.NewTask(ctx, "regions")
