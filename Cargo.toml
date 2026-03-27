@@ -9,6 +9,7 @@ async-stream = "0.3.6"
 async-trait = "0.1.89"
 async_zip = { version = "0.0.18", features = ["chrono", "deflate", "tokio", "tokio-fs"] }
 axum = "0.8.8"
+bytes = "1.11.1"
 chrono = "0.4.44"
 csv-async = { version = "1.3.1", features = ["tokio"] }
 dial9-tokio-telemetry = "0.2.0"
