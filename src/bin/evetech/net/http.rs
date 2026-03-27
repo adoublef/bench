@@ -19,10 +19,9 @@ use url::Url;
 // impl<T: ?Sized + CsvByteStream + Clone + Send + Sync + 'static> CsvByteStreamHandle for T {}
 
 #[derive(Debug, Clone)]
-struct AppState<T: Client + Clone + Send + Sync + 'static>(Handler<T>); // Handler now needs to be generic
+struct AppState<T: Client>(Handler<T>); // Handler now needs to be generic
 
-fn app<C: Client + Clone + Send + Sync + 'static>(client: C) -> Router {
-    // i want to pass in the client only
+fn app<C: Client>(client: C) -> Router {
     let handler = Handler::new(client);
     Router::new()
         .route("/", get(handle_csv))

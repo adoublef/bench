@@ -31,7 +31,7 @@ pub struct Order {
 }
 
 #[async_trait]
-pub trait Client {
+pub trait Client: Clone + Send + Sync + 'static {
     async fn regions(
         &self,
         url: Url,
@@ -46,11 +46,11 @@ pub trait Client {
 }
 
 #[derive(Debug, Clone)]
-pub struct Handler<C: Client + Clone + Send + Sync + 'static> {
+pub struct Handler<C: Client> {
     client: C,
 }
 
-impl<C: Client + Clone + Send + Sync + 'static> Handler<C> {
+impl<C: Client> Handler<C> {
     pub fn new(client: C) -> Self {
         Self { client }
     }
