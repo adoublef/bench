@@ -51,10 +51,6 @@ pub struct Handler<C: Client + Clone + Send + Sync + 'static> {
 }
 
 impl<C: Client + Clone + Send + Sync + 'static> Handler<C> {
-    pub fn new(client: C) -> Self {
-        Self { client }
-    }
-
     pub async fn order_stream(
         &self,
         base_url: Url,
