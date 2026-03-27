@@ -5,7 +5,7 @@ use csv_async::AsyncWriterBuilder;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
 use serde::{Deserialize, Serialize};
 use std::io;
-use tokio::{io::duplex, pin, sync::mpsc, task::JoinSet};
+use tokio::{io::duplex, sync::mpsc, task::JoinSet};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 use tracing::{Instrument as _, trace_span};
@@ -35,14 +35,20 @@ pub trait Client: Clone + Send + Sync + 'static {
     async fn regions(
         &self,
         url: Url,
-    ) -> Result<impl Stream<Item = Result<u32, anyhow::Error>> + Send + 'static, anyhow::Error>;
+    ) -> Result<
+        impl Stream<Item = Result<u32, anyhow::Error>> + Send + Unpin + 'static,
+        anyhow::Error,
+    >;
     async fn max_pages(&self, url: Url, region: u32) -> Result<u32, anyhow::Error>;
     async fn orders(
         &self,
         url: Url,
         region: u32,
         page: u32,
-    ) -> Result<impl Stream<Item = Result<Order, anyhow::Error>> + Send + 'static, anyhow::Error>;
+    ) -> Result<
+        impl Stream<Item = Result<Order, anyhow::Error>> + Send + Unpin + 'static,
+        anyhow::Error,
+    >;
 }
 
 #[derive(Debug, Clone)]
@@ -67,8 +73,7 @@ impl<C: Client> Handler<C> {
             let client = self.client.clone();
             let base_url = base_url.clone();
             async move {
-                let stream = client.regions(base_url.clone()).await?;
-                pin!(stream);
+                let mut stream = client.regions(base_url.clone()).await?;
                 while let Some(id) = stream.try_next().await? {
                     tx.send(id).await?;
                 }
@@ -115,8 +120,7 @@ impl<C: Client> Handler<C> {
                         let client = client.clone();
                         let base_url = base_url.clone(); // cloning twice?
                         async move {
-                            let stream = client.orders(base_url.clone(), region, page).await?;
-                            pin!(stream);
+                            let mut stream = client.orders(base_url.clone(), region, page).await?;
                             while let Some(order) = stream.try_next().await? {
                                 tx.send(order).await?;
                             }
