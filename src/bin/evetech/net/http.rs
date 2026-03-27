@@ -21,7 +21,9 @@ use url::Url;
 #[derive(Debug, Clone)]
 struct AppState<T: Client + Clone + Send + Sync + 'static>(Handler<T>); // Handler now needs to be generic
 
-fn app<T: Client + Clone + Send + Sync + 'static>(handler: Handler<T>) -> Router {
+fn app<C: Client + Clone + Send + Sync + 'static>(client: C) -> Router {
+    // i want to pass in the client only
+    let handler = Handler::new(client);
     Router::new()
         .route("/", get(handle_csv))
         .with_state(AppState(handler))
@@ -264,11 +266,9 @@ mod test {
         let client = Client::new();
         let url = Url::parse(&format!("http://{addr}"))?;
 
-        let handler = Handler::new(AppClient(api_client));
-
         // spawn new process, how would i close it?
         spawn(async move {
-            if let Err(e) = axum::serve(listener, app(handler)).await {
+            if let Err(e) = axum::serve(listener, app(AppClient(api_client))).await {
                 eprintln!("server error: {e}");
             }
         });
