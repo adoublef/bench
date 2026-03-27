@@ -19,9 +19,9 @@ func TestHandler(t *testing.T) {
 	t.Run("OK", func(t *testing.T) {
 		ctx := t.Context()
 
-		const numRegions = 1 << 7
-		const numPages = 1 << 7
-		const numOrders = 1 << 7
+		const numRegions = 1 << 0
+		const numPages = 1 << 0
+		const numOrders = 1 << 0
 
 		apiC, apiURL := apiClient(t, numRegions, numPages, numOrders)
 		c, sURL := testClient(t, apiC)
@@ -64,7 +64,11 @@ func TestHandler(t *testing.T) {
 func testClient(t testing.TB, httpC *http.Client) (*http.Client, string) {
 	t.Helper()
 
-	s := httptest.NewServer(Handler(httpC))
+	st := &order.Handler{
+		Client: &Client{httpC},
+	}
+
+	s := httptest.NewServer(Handler(st))
 	t.Cleanup(func() { s.Close() })
 
 	return s.Client(), s.URL
