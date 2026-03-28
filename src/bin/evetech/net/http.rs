@@ -200,9 +200,9 @@ mod test {
             .build_and_start(builder, writer)?;
 
         runtime.block_on(async {
-            let num_regions = 1 << 2;
-            let num_pages = 1 << 2;
-            let num_orders = 1 << 2;
+            let num_regions = 1 << 6;
+            let num_pages = 1 << 6;
+            let num_orders = 1 << 6;
 
             let has_header = false;
 
