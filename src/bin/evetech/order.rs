@@ -73,7 +73,7 @@ where
     ) -> impl Stream<Item = Result<Bytes, io::Error>> + Send + 'static {
         let mut set = JoinSet::new();
 
-        let (tx, regions) = mpsc::channel::<u32>(DEFAULT_BUF_SIZE);
+        let (tx, regions) = mpsc::channel(DEFAULT_BUF_SIZE);
         set.spawn({
             let client = self.client.clone();
             let base_url = base_url.clone(); // we form the string here?
@@ -87,7 +87,7 @@ where
             .instrument(trace_span!("regions"))
         });
 
-        let (tx, queries) = mpsc::channel::<(u32, u32)>(DEFAULT_BUF_SIZE);
+        let (tx, queries) = mpsc::channel(DEFAULT_BUF_SIZE);
         set.spawn({
             let client = self.client.clone();
             let base_url = base_url.clone();
@@ -110,7 +110,7 @@ where
             }
         });
 
-        let (tx, mut orders) = mpsc::channel::<Order>(DEFAULT_BUF_SIZE);
+        let (tx, mut orders) = mpsc::channel(DEFAULT_BUF_SIZE);
         set.spawn({
             let client = self.client.clone();
             let base_url = base_url.clone();
