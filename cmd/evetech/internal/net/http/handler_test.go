@@ -19,9 +19,9 @@ func TestHandler(t *testing.T) {
 	t.Run("OK", func(t *testing.T) {
 		ctx := t.Context()
 
-		const numRegions = 1 << 0
-		const numPages = 1 << 0
-		const numOrders = 1 << 0
+		const numRegions = 1 << 3
+		const numPages = 1 << 3
+		const numOrders = 1 << 3
 
 		apiC, apiURL := apiClient(t, numRegions, numPages, numOrders)
 		c, sURL := testClient(t, apiC)
@@ -106,6 +106,7 @@ func apiClient(t testing.TB, regions, max, orders int) (httpC *http.Client, base
 
 		mux.HandleFunc("GET /v1/universe/regions", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Length", strconv.Itoa(len(p)))
+			w.Header().Set("Content-Type", "application/json")
 			if _, err := w.Write(p); err != nil {
 				t.Fail()
 			}
@@ -151,6 +152,7 @@ func apiClient(t testing.TB, regions, max, orders int) (httpC *http.Client, base
 				t.Fail()
 			}
 			w.Header().Set("Content-Length", strconv.Itoa(len(p)))
+			w.Header().Set("Content-Type", "application/json")
 			if _, err := w.Write(p); err != nil {
 				t.Fail()
 			}
