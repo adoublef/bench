@@ -8,12 +8,13 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use futures_util::{Stream, TryStreamExt as _, future::Either};
+use futures_util::{Stream, TryStreamExt as _, future::Either, stream};
 use http_json_stream::{JsonPart, JsonStream};
 use json_stream::JsonStream as NdJsonStream;
 use reqwest::Client as HttpClient;
 use reqwest::{StatusCode, header};
 use serde::Deserialize;
+use tokio_stream::StreamExt;
 use url::Url;
 
 #[derive(Debug, Clone)]
@@ -41,6 +42,9 @@ impl Client for AppClient {
             .send()
             .await?
             .error_for_status()?;
+        //     .json::<Vec<u32>>()
+        //     .await?;
+        // let stream = stream::iter(response).map(anyhow::Ok);
 
         let stream = match response
             .headers()
@@ -90,6 +94,9 @@ impl Client for AppClient {
             .send()
             .await?
             .error_for_status()?;
+        //     .json::<Vec<Order>>()
+        //     .await?;
+        // let stream = stream::iter(response).map(anyhow::Ok);
 
         let stream = match response
             .headers()
@@ -183,7 +190,7 @@ mod test {
     use tokio_util::io::StreamReader;
     use url::Url;
 
-    // #[tokio::test]
+    // #[tokio::test(flavor = "multi_thread")]
     #[test]
     fn test_csv_ok() -> anyhow::Result<()> {
         // https://docs.rs/dial9-tokio-telemetry/latest/dial9_tokio_telemetry/#quick-start
@@ -200,9 +207,9 @@ mod test {
             .build_and_start(builder, writer)?;
 
         runtime.block_on(async {
-            let num_regions = 1 << 6;
-            let num_pages = 1 << 6;
-            let num_orders = 1 << 6;
+            let num_regions = 1 << 3;
+            let num_pages = 1 << 3;
+            let num_orders = 1 << 3;
 
             let has_header = false;
 
