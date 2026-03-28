@@ -24,7 +24,7 @@ type Client interface {
 
 type Handler struct{ Client }
 
-func (h *Handler) OrdersReader(ctx context.Context, u *url.URL, hasHeader bool) io.ReadCloser {
+func (h *Handler) OrderStream(ctx context.Context, u *url.URL, hasHeader bool) io.ReadCloser {
 	g, ctx := errgroup.WithContext(ctx)
 
 	regions := make(chan uint64, defaultBufSize)
@@ -51,14 +51,14 @@ func (h *Handler) OrdersReader(ctx context.Context, u *url.URL, hasHeader bool) 
 	type query struct{ region, page uint64 }
 	queries := make(chan query, defaultBufSize)
 	g.Go(func() error {
-		defer func() { close(queries) }()
+		defer close(queries)
 
 		g, ctx := errgroup.WithContext(ctx)
 		g.SetLimit(defaultLimit)
 		for region := range regions {
 			g.Go(func() error {
 				ctx, task := trace.NewTask(ctx, "pages")
-				defer func() { task.End() }()
+				defer task.End()
 
 				n, err := h.Client.Max(ctx, u, region)
 				if err != nil {
@@ -83,7 +83,7 @@ func (h *Handler) OrdersReader(ctx context.Context, u *url.URL, hasHeader bool) 
 
 	records := make(chan [12]string, defaultBufSize)
 	g.Go(func() error {
-		defer func() { close(records) }()
+		defer close(records)
 
 		// send the header if hasHeader is set
 		if hasHeader {
@@ -112,7 +112,7 @@ func (h *Handler) OrdersReader(ctx context.Context, u *url.URL, hasHeader bool) 
 		for q := range queries {
 			g.Go(func() error {
 				ctx, task := trace.NewTask(ctx, "orders")
-				defer func() { task.End() }()
+				defer task.End()
 
 				for o, err := range h.Client.Orders(ctx, u, q.region, q.page) {
 					if err != nil {
@@ -135,6 +135,9 @@ func (h *Handler) OrdersReader(ctx context.Context, u *url.URL, hasHeader bool) 
 
 	pr, pw := io.Pipe()
 	g.Go(func() error {
+		ctx, task := trace.NewTask(ctx, "csv")
+		defer task.End()
+
 		cw := csv.NewWriter(pw) // 4*1<<10 buffer
 		for record := range records {
 			if err := cmp.Or(cw.Write(record[:]), ctx.Err()); err != nil {

@@ -32,14 +32,14 @@ func handleCSV(h *order.Handler) HandlerFunc {
 			return err
 		}
 
-		rc := h.OrdersReader(ctx, u, has)
-		defer rc.Close()
+		s := h.OrderStream(ctx, u, has)
+		defer s.Close()
 
 		h := w.Header()
 		h.Set("Content-Type", "text/csv")
 		h.Set("Content-Disposition", "attachment; filename=\"evetech.csv\"")
 
-		_, err = io.CopyBuffer(w, rc, nil)
+		_, err = io.CopyBuffer(w, s, nil)
 		return err
 	}
 }
