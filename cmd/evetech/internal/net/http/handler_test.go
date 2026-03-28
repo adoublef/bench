@@ -19,9 +19,9 @@ func TestHandler(t *testing.T) {
 	t.Run("OK", func(t *testing.T) {
 		ctx := t.Context()
 
-		const numRegions = 1 << 3
-		const numPages = 1 << 3
-		const numOrders = 1 << 3
+		const numRegions = 1 << 7
+		const numPages = 1 << 7
+		const numOrders = 1 << 7
 
 		apiC, apiURL := apiClient(t, numRegions, numPages, numOrders)
 		c, sURL := testClient(t, apiC)
