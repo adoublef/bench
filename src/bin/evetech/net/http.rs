@@ -10,6 +10,7 @@ use axum::{
 };
 use futures_util::{Stream, TryStreamExt as _};
 use http_json_stream::{JsonPart, JsonStream};
+use reqwest::Client as HttpClient;
 use reqwest::{StatusCode, header};
 use serde::Deserialize;
 use url::Url;
@@ -25,15 +26,16 @@ fn app<C: Client>(client: C) -> Router {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct AppClient(reqwest::Client);
+pub struct AppClient(HttpClient);
 
 #[async_trait]
 impl Client for AppClient {
+    // type Error = anyhow::Error;
+
     async fn regions(
         &self,
-        url: Url,
-    ) -> Result<impl Stream<Item = Result<u32, anyhow::Error>> + Send + 'static, anyhow::Error>
-    {
+        url: &Url,
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<u32>> + Send + 'static> {
         let response = self
             .0
             .get(url.join("/v1/universe/regions")?)
@@ -45,7 +47,7 @@ impl Client for AppClient {
         Ok(stream) // map the error here
     }
 
-    async fn max_pages(&self, url: Url, region: u32) -> Result<u32, anyhow::Error> {
+    async fn max_pages(&self, url: &Url, region: u32) -> anyhow::Result<u32> {
         Ok(self
             .0
             .head(url.join(&format!("/v1/markets/{region}/orders"))?)
@@ -61,11 +63,10 @@ impl Client for AppClient {
 
     async fn orders(
         &self,
-        url: Url,
+        url: &Url,
         region: u32,
         page: u32,
-    ) -> Result<impl Stream<Item = Result<Order, anyhow::Error>> + Send + 'static, anyhow::Error>
-    {
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Order>> + Send + 'static> {
         let response = self
             .0
             .get(url.join(&format!("/v1/markets/{region}/orders?page={page}"))?)
@@ -92,7 +93,7 @@ async fn handle_csv<T: Client + Clone + Send + Sync + 'static>(
     }): Query<CsvParams>,
 ) -> Result<Response, AppError> {
     let has_header = has_header.unwrap_or_default();
-    let stream = handler.order_stream(base_url, has_header).await;
+    let stream = handler.order_stream(base_url, has_header);
     let response = Response::builder()
         .header(header::CONTENT_TYPE, mime::TEXT_CSV.essence_str())
         .header(

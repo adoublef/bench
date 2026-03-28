@@ -30,38 +30,43 @@ pub struct Order {
     volume_total: i64,
 }
 
+// NOTE, due to defining an error here, we would need to define the
+// HttpClient here too else I don't really know how we can define
+// a module level error properly
+
 #[async_trait]
 pub trait Client: Clone + Send + Sync + 'static {
+    // type Error;
+
     async fn regions(
         &self,
-        url: Url,
-    ) -> Result<
-        impl Stream<Item = Result<u32, anyhow::Error>> + Send + Unpin + 'static,
-        anyhow::Error,
-    >;
-    async fn max_pages(&self, url: Url, region: u32) -> Result<u32, anyhow::Error>;
+        url: &Url,
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<u32>> + Send + Unpin + 'static>;
+    async fn max_pages(&self, url: &Url, region: u32) -> anyhow::Result<u32>;
     async fn orders(
         &self,
-        url: Url,
+        url: &Url,
         region: u32,
         page: u32,
-    ) -> Result<
-        impl Stream<Item = Result<Order, anyhow::Error>> + Send + Unpin + 'static,
-        anyhow::Error,
-    >;
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Order>> + Send + Unpin + 'static>;
 }
 
+// From anyhow?
+
 #[derive(Debug, Clone)]
-pub struct Handler<C: Client> {
+pub struct Handler<C> {
     client: C,
 }
 
-impl<C: Client> Handler<C> {
+impl<C> Handler<C>
+where
+    C: Client,
+{
     pub fn new(client: C) -> Self {
         Self { client }
     }
 
-    pub async fn order_stream(
+    pub fn order_stream(
         &self,
         base_url: Url,
         has_header: bool,
@@ -71,13 +76,13 @@ impl<C: Client> Handler<C> {
         let (tx, regions) = mpsc::channel::<u32>(DEFAULT_BUF_SIZE);
         set.spawn({
             let client = self.client.clone();
-            let base_url = base_url.clone();
+            let base_url = base_url.clone(); // we form the string here?
             async move {
-                let mut stream = client.regions(base_url.clone()).await?;
+                let mut stream = client.regions(&base_url).await?;
                 while let Some(id) = stream.try_next().await? {
                     tx.send(id).await?;
                 }
-                Ok::<_, anyhow::Error>(())
+                anyhow::Ok(())
             }
             .instrument(trace_span!("regions"))
         });
@@ -88,23 +93,20 @@ impl<C: Client> Handler<C> {
             let base_url = base_url.clone();
             async move {
                 ReceiverStream::new(regions)
-                    .map(Ok::<_, anyhow::Error>)
-                    .try_for_each_concurrent(DEFAULT_LIMIT, |region| {
-                        let tx = tx.clone();
-                        let client = client.clone();
-                        let base_url = base_url.clone();
-                        async move {
-                            let last = client.max_pages(base_url, region).await?;
-
+                    .map(anyhow::Ok)
+                    .try_for_each_concurrent(DEFAULT_LIMIT, async |region| {
+                        async {
+                            let last = client.max_pages(&base_url, region).await?;
                             for page in 1..=last {
                                 tx.send((region, page)).await?;
                             }
-                            Ok::<_, anyhow::Error>(())
+                            anyhow::Ok(())
                         }
-                        .instrument(trace_span!("pages"))
+                        .instrument(trace_span!("pages", region))
+                        .await
                     })
                     .await?;
-                Ok::<_, anyhow::Error>(())
+                anyhow::Ok(())
             }
         });
 
@@ -114,22 +116,20 @@ impl<C: Client> Handler<C> {
             let base_url = base_url.clone();
             async move {
                 ReceiverStream::new(queries)
-                    .map(Ok::<_, anyhow::Error>)
-                    .try_for_each_concurrent(DEFAULT_LIMIT, |(region, page)| {
-                        let tx = tx.clone();
-                        let client = client.clone();
-                        let base_url = base_url.clone(); // cloning twice?
-                        async move {
-                            let mut stream = client.orders(base_url.clone(), region, page).await?;
+                    .map(anyhow::Ok)
+                    .try_for_each_concurrent(DEFAULT_LIMIT, async |(region, page)| {
+                        async {
+                            let mut stream = client.orders(&base_url, region, page).await?;
                             while let Some(order) = stream.try_next().await? {
                                 tx.send(order).await?;
                             }
-                            Ok::<_, anyhow::Error>(())
+                            anyhow::Ok(())
                         }
-                        .instrument(trace_span!("orders"))
+                        .instrument(trace_span!("orders", region, page))
+                        .await
                     })
                     .await?;
-                Ok::<_, anyhow::Error>(())
+                anyhow::Ok(())
             }
         });
 
@@ -144,7 +144,7 @@ impl<C: Client> Handler<C> {
                     wri.serialize(&order).await?;
                 }
                 wri.flush().await?;
-                Ok::<_, anyhow::Error>(())
+                anyhow::Ok(())
             }
             .instrument(trace_span!("csv"))
         });
