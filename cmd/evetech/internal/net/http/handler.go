@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime/trace"
+	"sync"
 
 	"github.com/adoublef/bench/cmd/evetech/internal/order"
 )
@@ -35,9 +36,28 @@ func handleCSV(h *order.Handler) HandlerFunc {
 		h.Set("Content-Type", "text/csv")
 		h.Set("Content-Disposition", "attachment; filename=\"evetech.csv\"")
 
-		_, err = io.CopyBuffer(w, s, nil)
+		_, err = io.Copy(w, s)
 		return err
 	}
+}
+
+type writerOnly struct {
+	io.Writer
+}
+
+const copyBufPoolSize = 4 << 10
+
+var copyBufPool = sync.Pool{New: func() any { return new([copyBufPoolSize]byte) }}
+
+func getCopyBuf() []byte {
+	return copyBufPool.Get().(*[copyBufPoolSize]byte)[:]
+}
+
+func putCopyBuf(b []byte) {
+	if len(b) != copyBufPoolSize {
+		panic("trying to put back buffer of the wrong size in the copyBufPool")
+	}
+	copyBufPool.Put((*[copyBufPoolSize]byte)(b))
 }
 
 type HandlerFunc func(w http.ResponseWriter, r *http.Request) error
