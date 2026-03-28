@@ -30,12 +30,10 @@ pub struct AppClient(HttpClient);
 
 #[async_trait]
 impl Client for AppClient {
-    // type Error = anyhow::Error;
-
     async fn regions(
         &self,
         url: &Url,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<u32>> + Send + 'static> {
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<u32>> + Send> {
         let response = self
             .0
             .get(url.join("/v1/universe/regions")?)
@@ -66,7 +64,7 @@ impl Client for AppClient {
         url: &Url,
         region: u32,
         page: u32,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Order>> + Send + 'static> {
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Order>> + Send> {
         let response = self
             .0
             .get(url.join(&format!("/v1/markets/{region}/orders?page={page}"))?)

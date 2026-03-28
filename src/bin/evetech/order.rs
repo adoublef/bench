@@ -4,7 +4,7 @@ use bytes::Bytes;
 use csv_async::AsyncWriterBuilder;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
 use serde::{Deserialize, Serialize};
-use std::io;
+use std::{fmt::Debug, io};
 use tokio::{io::duplex, sync::mpsc, task::JoinSet};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
@@ -30,25 +30,19 @@ pub struct Order {
     volume_total: i64,
 }
 
-// NOTE, due to defining an error here, we would need to define the
-// HttpClient here too else I don't really know how we can define
-// a module level error properly
-
 #[async_trait]
 pub trait Client: Clone + Send + Sync + 'static {
-    // type Error;
-
     async fn regions(
         &self,
         url: &Url,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<u32>> + Send + Unpin + 'static>;
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<u32>> + Send + Unpin>;
     async fn max_pages(&self, url: &Url, region: u32) -> anyhow::Result<u32>;
     async fn orders(
         &self,
         url: &Url,
         region: u32,
         page: u32,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Order>> + Send + Unpin + 'static>;
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Order>> + Send + Unpin>;
 }
 
 // From anyhow?
