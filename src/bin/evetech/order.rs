@@ -30,6 +30,25 @@ pub struct Order {
     volume_total: i64,
 }
 
+impl Order {
+    fn to_record(&self) -> [String; 12] {
+        [
+            self.duration.to_string(),
+            self.is_buy_order.to_string(),
+            self.issued.clone(),
+            self.location_id.to_string(),
+            self.min_volume.to_string(),
+            self.order_id.to_string(),
+            self.price.to_string(),
+            self.range.clone(),
+            self.system_id.to_string(),
+            self.type_id.to_string(),
+            self.volume_remain.to_string(),
+            self.volume_total.to_string(),
+        ]
+    }
+}
+
 #[async_trait]
 pub trait Client: Clone + Send + Sync + 'static {
     async fn regions(
@@ -104,7 +123,7 @@ where
             }
         });
 
-        let (tx, mut orders) = mpsc::channel(DEFAULT_BUF_SIZE);
+        let (tx, mut records) = mpsc::channel(DEFAULT_BUF_SIZE);
         set.spawn({
             let client = self.client.clone();
             let base_url = base_url.clone();
@@ -115,7 +134,7 @@ where
                         async {
                             let mut stream = client.orders(&base_url, region, page).await?;
                             while let Some(order) = stream.try_next().await? {
-                                tx.send(order).await?;
+                                tx.send(order.to_record()).await?;
                             }
                             anyhow::Ok(())
                         }
@@ -133,9 +152,9 @@ where
                 let mut wri = AsyncWriterBuilder::new()
                     .has_headers(has_header) // no header
                     .buffer_capacity(4 << 10)
-                    .create_serializer(tx);
-                while let Some(order) = orders.recv().await {
-                    wri.serialize(&order).await?;
+                    .create_writer(tx);
+                while let Some(order) = records.recv().await {
+                    wri.write_record(&order).await?;
                 }
                 wri.flush().await?;
                 anyhow::Ok(())

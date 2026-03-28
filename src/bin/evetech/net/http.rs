@@ -42,9 +42,6 @@ impl Client for AppClient {
             .send()
             .await?
             .error_for_status()?;
-        //     .json::<Vec<u32>>()
-        //     .await?;
-        // let stream = stream::iter(response).map(anyhow::Ok);
 
         let stream = match response
             .headers()
@@ -94,9 +91,6 @@ impl Client for AppClient {
             .send()
             .await?
             .error_for_status()?;
-        //     .json::<Vec<Order>>()
-        //     .await?;
-        // let stream = stream::iter(response).map(anyhow::Ok);
 
         let stream = match response
             .headers()
@@ -207,9 +201,9 @@ mod test {
             .build_and_start(builder, writer)?;
 
         runtime.block_on(async {
-            let num_regions = 1 << 3;
-            let num_pages = 1 << 3;
-            let num_orders = 1 << 3;
+            let num_regions = 1 << 7;
+            let num_pages = 1 << 7;
+            let num_orders = 1 << 7;
 
             let has_header = false;
 
