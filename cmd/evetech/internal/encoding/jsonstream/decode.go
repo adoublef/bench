@@ -12,7 +12,8 @@ func Decode[T any](r io.Reader, stream bool) iter.Seq2[T, error] {
 	var v T
 	return func(yield func(T, error) bool) {
 		if !stream {
-			if _, err := d.Token(); err != nil && !yield(v, err) {
+			if _, err := d.Token(); err != nil {
+				yield(v, err)
 				return
 			}
 		}
@@ -32,7 +33,8 @@ func Decode[T any](r io.Reader, stream bool) iter.Seq2[T, error] {
 			}
 		}
 		if !stream {
-			if _, err := d.Token(); err != nil && !yield(v, err) {
+			if _, err := d.Token(); err != nil {
+				yield(v, err)
 				return
 			}
 		}
