@@ -1,5 +1,5 @@
 use crate::order::{Client, Handler, Order};
-use anyhow::Context as _;
+use anyhow::{Context as _, anyhow};
 use async_trait::async_trait;
 use axum::{
     Router,
@@ -8,8 +8,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use futures_util::{Stream, TryStreamExt as _};
+use futures_util::{Stream, TryStreamExt as _, future::Either};
 use http_json_stream::{JsonPart, JsonStream};
+use json_stream::JsonStream as NdJsonStream;
 use reqwest::Client as HttpClient;
 use reqwest::{StatusCode, header};
 use serde::Deserialize;
@@ -40,8 +41,26 @@ impl Client for AppClient {
             .send()
             .await?
             .error_for_status()?;
-        let stream = JsonStream::<_, _, u32>::process(response, JsonPart::level(1))
-            .map_err(|e| anyhow::anyhow!(e.to_string()));
+
+        let stream = match response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .context("Missing Content-Type header")?
+            .to_str()?
+        {
+            "application/json" => {
+                let stream = JsonStream::<_, _, u32>::process(response, JsonPart::level(1))
+                    .map_err(|e| anyhow!(e.to_string()));
+                Ok(Either::Left(stream))
+            }
+            "application/x-ndjson" | "application/jsonl" => {
+                let stream = NdJsonStream::<u32, _>::new(response.bytes_stream())
+                    .map_err(|e| anyhow!(e.to_string()));
+                Ok(Either::Right(stream))
+            }
+            ct => Err(anyhow!("Invalid Content-Type: {ct}")),
+        }?;
+
         Ok(stream) // map the error here
     }
 
@@ -71,8 +90,26 @@ impl Client for AppClient {
             .send()
             .await?
             .error_for_status()?;
-        let stream = JsonStream::<_, _, Order>::process(response, JsonPart::level(1))
-            .map_err(|e| anyhow::anyhow!(e.to_string()));
+
+        let stream = match response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .context("Missing Content-Type header")?
+            .to_str()?
+        {
+            "application/json" => {
+                let stream = JsonStream::<_, _, Order>::process(response, JsonPart::level(1))
+                    .map_err(|e| anyhow!(e.to_string()));
+                Ok(Either::Left(stream))
+            }
+            "application/x-ndjson" | "application/jsonl" => {
+                let stream = NdJsonStream::<Order, _>::new(response.bytes_stream())
+                    .map_err(|e| anyhow!(e.to_string()));
+                Ok(Either::Right(stream))
+            }
+            ct => Err(anyhow!("Invalid Content-Type: {ct}")),
+        }?;
+
         Ok(stream) // map the error here
     }
 }
@@ -100,7 +137,7 @@ async fn handle_csv<T: Client + Clone + Send + Sync + 'static>(
         )
         .status(StatusCode::OK)
         .body(Body::from_stream(stream))
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        .map_err(|e| anyhow!(e.to_string()))?;
     Ok(response)
 }
 
