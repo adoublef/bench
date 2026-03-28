@@ -8,13 +8,12 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use futures_util::{Stream, TryStreamExt as _, future::Either, stream};
+use futures_util::{Stream, TryStreamExt as _, future::Either};
 use http_json_stream::{JsonPart, JsonStream};
 use json_stream::JsonStream as NdJsonStream;
 use reqwest::Client as HttpClient;
 use reqwest::{StatusCode, header};
 use serde::Deserialize;
-use tokio_stream::StreamExt;
 use url::Url;
 
 #[derive(Debug, Clone)]

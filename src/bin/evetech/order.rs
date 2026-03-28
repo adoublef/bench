@@ -128,6 +128,23 @@ where
             let client = self.client.clone();
             let base_url = base_url.clone();
             async move {
+                if has_header {
+                    tx.send([
+                        "duration".to_string(),
+                        "is_buy_order".to_string(),
+                        "issued".to_string(),
+                        "location_®id".to_string(),
+                        "min_volume".to_string(),
+                        "order_id".to_string(),
+                        "price".to_string(),
+                        "range".to_string(),
+                        "system_id".to_string(),
+                        "type_id".to_string(),
+                        "volume_remain".to_string(),
+                        "volume_total".to_string(),
+                    ])
+                    .await?
+                }
                 ReceiverStream::new(queries)
                     .map(anyhow::Ok)
                     .try_for_each_concurrent(DEFAULT_LIMIT, async |(region, page)| {
@@ -150,7 +167,6 @@ where
         set.spawn({
             async move {
                 let mut wri = AsyncWriterBuilder::new()
-                    .has_headers(has_header) // no header
                     .buffer_capacity(4 << 10)
                     .create_writer(tx);
                 while let Some(order) = records.recv().await {
