@@ -11,9 +11,9 @@ use axum::{
 use futures_util::{Stream, TryStreamExt as _, future::Either};
 use http_json_stream::{JsonPart, JsonStream};
 use json_stream::JsonStream as NdJsonStream;
-use reqwest::Client as HttpClient;
 use reqwest::{StatusCode, header};
 use serde::Deserialize;
+use std::fmt::Debug;
 use url::Url;
 
 #[derive(Debug, Clone)]
@@ -26,93 +26,7 @@ fn app<C: Client>(client: C) -> Router {
         .with_state(AppState(handler))
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct AppClient(HttpClient);
-
-#[async_trait]
-impl Client for AppClient {
-    async fn regions(
-        &self,
-        url: &Url,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<u32>> + Send> {
-        let response = self
-            .0
-            .get(url.join("/v1/universe/regions")?)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let stream = match response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .context("Missing Content-Type header")?
-            .to_str()?
-        {
-            "application/json" => {
-                let stream = JsonStream::<_, _, u32>::process(response, JsonPart::level(1))
-                    .map_err(|e| anyhow!(e.to_string()));
-                Ok(Either::Left(stream))
-            }
-            "application/x-ndjson" | "application/jsonl" => {
-                let stream = NdJsonStream::<u32, _>::new(response.bytes_stream())
-                    .map_err(|e| anyhow!(e.to_string()));
-                Ok(Either::Right(stream))
-            }
-            ct => Err(anyhow!("Invalid Content-Type: {ct}")),
-        }?;
-
-        Ok(stream) // map the error here
-    }
-
-    async fn max_pages(&self, url: &Url, region: u32) -> anyhow::Result<u32> {
-        Ok(self
-            .0
-            .head(url.join(&format!("/v1/markets/{region}/orders"))?)
-            .send()
-            .await?
-            .error_for_status()?
-            .headers()
-            .get("x-pages")
-            .context("Missing x-pages header")?
-            .to_str()?
-            .parse::<u32>()?)
-    }
-
-    async fn orders(
-        &self,
-        url: &Url,
-        region: u32,
-        page: u32,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Order>> + Send> {
-        let response = self
-            .0
-            .get(url.join(&format!("/v1/markets/{region}/orders?page={page}"))?)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let stream = match response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .context("Missing Content-Type header")?
-            .to_str()?
-        {
-            "application/json" => {
-                let stream = JsonStream::<_, _, Order>::process(response, JsonPart::level(1))
-                    .map_err(|e| anyhow!(e.to_string()));
-                Ok(Either::Left(stream))
-            }
-            "application/x-ndjson" | "application/jsonl" => {
-                let stream = NdJsonStream::<Order, _>::new(response.bytes_stream())
-                    .map_err(|e| anyhow!(e.to_string()));
-                Ok(Either::Right(stream))
-            }
-            ct => Err(anyhow!("Invalid Content-Type: {ct}")),
-        }?;
-
-        Ok(stream) // map the error here
-    }
-}
+// i can have my own error type here
 
 #[derive(Deserialize)]
 struct CsvParams {
@@ -162,6 +76,97 @@ where
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct HttpClient(pub reqwest::Client);
+
+#[async_trait]
+impl Client for HttpClient {
+    type Error = anyhow::Error;
+
+    async fn regions(
+        &self,
+        url: &Url,
+    ) -> Result<impl Stream<Item = Result<u32, Self::Error>> + Send, Self::Error> {
+        let response = self
+            .0
+            .get(url.join("/v1/universe/regions")?)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let stream = match response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .context("Missing Content-Type header")?
+            .to_str()?
+        {
+            "application/json" => {
+                // Infallible error type
+                let stream = JsonStream::<_, _, u32>::process(response, JsonPart::level(1))
+                    .map_err(|e| anyhow!(e.to_string()));
+                Ok(Either::Left(stream))
+            }
+            "application/x-ndjson" | "application/jsonl" => {
+                let stream = NdJsonStream::<u32, _>::new(response.bytes_stream())
+                    .map_err(|e| anyhow!(e.to_string()));
+                Ok(Either::Right(stream))
+            }
+            ct => Err(anyhow!("Invalid Content-Type: {ct}")),
+        }?;
+
+        Ok(stream) // map the error here
+    }
+
+    async fn max_pages(&self, url: &Url, region: u32) -> Result<u32, Self::Error> {
+        Ok(self
+            .0
+            .head(url.join(&format!("/v1/markets/{region}/orders"))?)
+            .send()
+            .await?
+            .error_for_status()?
+            .headers()
+            .get("x-pages")
+            .context("Missing x-pages header")?
+            .to_str()?
+            .parse::<u32>()?)
+    }
+
+    async fn orders(
+        &self,
+        url: &Url,
+        region: u32,
+        page: u32,
+    ) -> Result<impl Stream<Item = Result<Order, Self::Error>> + Send, Self::Error> {
+        let response = self
+            .0
+            .get(url.join(&format!("/v1/markets/{region}/orders?page={page}"))?)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let stream = match response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .context("Missing Content-Type header")?
+            .to_str()?
+        {
+            "application/json" => {
+                let stream = JsonStream::<_, _, Order>::process(response, JsonPart::level(1))
+                    .map_err(|e| anyhow!(e.to_string()));
+                Ok(Either::Left(stream))
+            }
+            "application/x-ndjson" | "application/jsonl" => {
+                let stream = NdJsonStream::<Order, _>::new(response.bytes_stream())
+                    .map_err(|e| anyhow!(e.to_string()));
+                Ok(Either::Right(stream))
+            }
+            ct => Err(anyhow!("Invalid Content-Type: {ct}")),
+        }?;
+
+        Ok(stream) // map the error here
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -183,7 +188,6 @@ mod test {
     use tokio_util::io::StreamReader;
     use url::Url;
 
-    // #[tokio::test(flavor = "multi_thread")]
     #[test]
     fn test_csv_ok() -> anyhow::Result<()> {
         // https://docs.rs/dial9-tokio-telemetry/latest/dial9_tokio_telemetry/#quick-start
@@ -200,9 +204,9 @@ mod test {
             .build_and_start(builder, writer)?;
 
         runtime.block_on(async {
-            let num_regions = 1 << 7;
-            let num_pages = 1 << 7;
-            let num_orders = 1 << 7;
+            let num_regions = 1 << 0;
+            let num_pages = 1 << 0;
+            let num_orders = 1 << 0;
 
             let has_header = false;
 
@@ -299,7 +303,7 @@ mod test {
 
         // spawn new process, how would i close it?
         spawn(async move {
-            if let Err(e) = axum::serve(listener, app(AppClient(api_client))).await {
+            if let Err(e) = axum::serve(listener, app(HttpClient(api_client))).await {
                 eprintln!("server error: {e}");
             }
         });

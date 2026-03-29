@@ -1,18 +1,22 @@
+use anyhow::anyhow;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use bytes::Bytes;
 use csv_async::AsyncWriterBuilder;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
 use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, io};
+use std::{
+    fmt::{Debug, Display},
+    io,
+};
 use tokio::{io::duplex, sync::mpsc, task::JoinSet};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 use tracing::{Instrument as _, trace_span};
 use url::Url;
 
-const DEFAULT_BUF_SIZE: usize = 1;
-const DEFAULT_LIMIT: usize = 1 << 0;
+const DEFAULT_LIMIT: usize = 1 << 2;
+const DEFAULT_BUF_SIZE: usize = DEFAULT_LIMIT; //1;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Order {
@@ -51,17 +55,19 @@ impl Order {
 
 #[async_trait]
 pub trait Client: Clone + Send + Sync + 'static {
+    type Error: Debug + Display;
+
     async fn regions(
         &self,
         url: &Url,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<u32>> + Send + Unpin>;
-    async fn max_pages(&self, url: &Url, region: u32) -> anyhow::Result<u32>;
+    ) -> Result<impl Stream<Item = Result<u32, Self::Error>> + Send + Unpin, Self::Error>;
+    async fn max_pages(&self, url: &Url, region: u32) -> Result<u32, Self::Error>;
     async fn orders(
         &self,
         url: &Url,
         region: u32,
         page: u32,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Order>> + Send + Unpin>;
+    ) -> Result<impl Stream<Item = Result<Order, Self::Error>> + Send + Unpin, Self::Error>;
 }
 
 // From anyhow?
@@ -91,8 +97,15 @@ where
             let client = self.client.clone();
             let base_url = base_url.clone(); // we form the string here?
             async move {
-                let mut stream = client.regions(&base_url).await?;
-                while let Some(id) = stream.try_next().await? {
+                let mut stream = client
+                    .regions(&base_url)
+                    .await
+                    .map_err(|e| anyhow!(e.to_string()))?;
+                while let Some(id) = stream
+                    .try_next()
+                    .await
+                    .map_err(|e| anyhow!(e.to_string()))?
+                {
                     tx.send(id).await?;
                 }
                 anyhow::Ok(())
@@ -109,7 +122,10 @@ where
                     .map(anyhow::Ok)
                     .try_for_each_concurrent(DEFAULT_LIMIT, async |region| {
                         async {
-                            let last = client.max_pages(&base_url, region).await?;
+                            let last = client
+                                .max_pages(&base_url, region)
+                                .await
+                                .map_err(|e| anyhow!(e.to_string()))?;
                             for page in 1..=last {
                                 tx.send((region, page)).await?;
                             }
@@ -149,8 +165,15 @@ where
                     .map(anyhow::Ok)
                     .try_for_each_concurrent(DEFAULT_LIMIT, async |(region, page)| {
                         async {
-                            let mut stream = client.orders(&base_url, region, page).await?;
-                            while let Some(order) = stream.try_next().await? {
+                            let mut stream = client
+                                .orders(&base_url, region, page)
+                                .await
+                                .map_err(|e| anyhow!(e.to_string()))?;
+                            while let Some(order) = stream
+                                .try_next()
+                                .await
+                                .map_err(|e| anyhow!(e.to_string()))?
+                            {
                                 tx.send(order.to_record()).await?;
                             }
                             anyhow::Ok(())
