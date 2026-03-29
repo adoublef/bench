@@ -13,8 +13,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const defaultBufSize = 1
-const defaultLimit = 1 << 0
+const defaultLimit = 1 << 2
+const defaultBufSize = defaultLimit //1
 
 type Client interface {
 	Regions(ctx context.Context, u *url.URL) iter.Seq2[uint64, error]
